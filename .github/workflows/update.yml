@@ -1,0 +1,146 @@
+name: Update Steel News
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-news:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install packages
+        run: |
+          pip install requests beautifulsoup4
+
+      - name: Collect news
+        run: |
+          cat > update_news.py <<'PY'
+          import json
+          import re
+          import time
+          import requests
+          import xml.etree.ElementTree as ET
+          from bs4 import BeautifulSoup
+          from datetime import datetime, timezone
+          from email.utils import parsedate_to_datetime
+
+          RSS_URL = "https://news.google.com/rss/search?q=Australia+steel&hl=en-AU&gl=AU&ceid=AU:en"
+
+          HEADERS = {
+              "User-Agent": "Mozilla/5.0 (compatible; SteelNewsFeed/1.0)"
+          }
+
+          response = requests.get(RSS_URL, headers=HEADERS, timeout=30)
+          response.raise_for_status()
+
+          root = ET.fromstring(response.content)
+
+          items = []
+
+          for item in root.findall(".//item")[:20]:
+
+              title = item.findtext("title", "").strip()
+              link = item.findtext("link", "").strip()
+              pub_date = item.findtext("pubDate", "").strip()
+
+              source_element = item.find("source")
+              source = (
+                  source_element.text.strip()
+                  if source_element is not None and source_element.text
+                  else "Google News"
+              )
+
+              image = ""
+
+              # Try to get the article's representative image
+              try:
+                  article = requests.get(
+                      link,
+                      headers=HEADERS,
+                      timeout=15,
+                      allow_redirects=True
+                  )
+
+                  soup = BeautifulSoup(article.text, "html.parser")
+
+                  # 1. Open Graph image
+                  og_image = soup.find(
+                      "meta",
+                      attrs={"property": "og:image"}
+                  )
+
+                  if og_image and og_image.get("content"):
+                      image = og_image["content"].strip()
+
+                  # 2. Twitter image fallback
+                  if not image:
+                      twitter_image = soup.find(
+                          "meta",
+                          attrs={"name": "twitter:image"}
+                      )
+
+                      if twitter_image and twitter_image.get("content"):
+                          image = twitter_image["content"].strip()
+
+              except Exception:
+                  pass
+
+              # Convert date to a simple Australian-style date
+              formatted_date = pub_date
+
+              try:
+                  dt = parsedate_to_datetime(pub_date)
+                  formatted_date = dt.strftime("%d %b %Y")
+              except Exception:
+                  pass
+
+              items.append({
+                  "title": title,
+                  "link": link,
+                  "source": source,
+                  "date": formatted_date,
+                  "image": image
+              })
+
+              # Avoid hammering news websites
+              time.sleep(0.5)
+
+          data = {
+              "updated": datetime.now(timezone.utc).isoformat(),
+              "items": items
+          }
+
+          with open("feed.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+
+          print(f"Collected {len(items)} news articles.")
+          PY
+
+          python update_news.py
+
+      - name: Save updated feed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add feed.json
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update steel news feed"
+            git push
+          fi
