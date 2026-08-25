@@ -29,21 +29,113 @@ jobs:
         run: |
           cat > update_news.py <<'PY'
           import json
-          import re
           import time
           import requests
           import xml.etree.ElementTree as ET
           from bs4 import BeautifulSoup
           from datetime import datetime, timezone
           from email.utils import parsedate_to_datetime
+          from urllib.parse import urljoin
 
           RSS_URL = "https://news.google.com/rss/search?q=Australia+steel&hl=en-AU&gl=AU&ceid=AU:en"
 
           HEADERS = {
-              "User-Agent": "Mozilla/5.0 (compatible; SteelNewsFeed/1.0)"
+              "User-Agent": (
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/131.0 Safari/537.36"
+              )
           }
 
-          response = requests.get(RSS_URL, headers=HEADERS, timeout=30)
+          def get_image(url):
+              try:
+                  response = requests.get(
+                      url,
+                      headers=HEADERS,
+                      timeout=20,
+                      allow_redirects=True
+                  )
+
+                  final_url = response.url
+
+                  soup = BeautifulSoup(response.text, "html.parser")
+
+                  # 1. Open Graph image
+                  tag = soup.find(
+                      "meta",
+                      attrs={"property": "og:image"}
+                  )
+
+                  if tag and tag.get("content"):
+                      return urljoin(final_url, tag["content"])
+
+                  # 2. Twitter image
+                  tag = soup.find(
+                      "meta",
+                      attrs={"name": "twitter:image"}
+                  )
+
+                  if tag and tag.get("content"):
+                      return urljoin(final_url, tag["content"])
+
+                  # 3. Alternative Twitter card format
+                  tag = soup.find(
+                      "meta",
+                      attrs={"property": "twitter:image"}
+                  )
+
+                  if tag and tag.get("content"):
+                      return urljoin(final_url, tag["content"])
+
+                  # 4. image_src
+                  tag = soup.find(
+                      "link",
+                      attrs={"rel": "image_src"}
+                  )
+
+                  if tag and tag.get("href"):
+                      return urljoin(final_url, tag["href"])
+
+                  # 5. Look for a reasonably large article image
+                  for img in soup.find_all("img"):
+
+                      src = (
+                          img.get("src")
+                          or img.get("data-src")
+                          or img.get("data-lazy-src")
+                      )
+
+                      if not src:
+                          continue
+
+                      width = img.get("width", "")
+                      height = img.get("height", "")
+
+                      try:
+                          if width and int(width) < 250:
+                              continue
+                          if height and int(height) < 150:
+                              continue
+                      except:
+                          pass
+
+                      image_url = urljoin(final_url, src)
+
+                      if image_url.startswith("http"):
+                          return image_url
+
+              except Exception as e:
+                  print("Image error:", e)
+
+              return ""
+
+          # Download Google News RSS
+          response = requests.get(
+              RSS_URL,
+              headers=HEADERS,
+              timeout=30
+          )
+
           response.raise_for_status()
 
           root = ET.fromstring(response.content)
@@ -57,54 +149,29 @@ jobs:
               pub_date = item.findtext("pubDate", "").strip()
 
               source_element = item.find("source")
-              source = (
-                  source_element.text.strip()
-                  if source_element is not None and source_element.text
-                  else "Google News"
-              )
 
-              image = ""
+              if (
+                  source_element is not None
+                  and source_element.text
+              ):
+                  source = source_element.text.strip()
+              else:
+                  source = "Google News"
 
-              # Try to get the article's representative image
-              try:
-                  article = requests.get(
-                      link,
-                      headers=HEADERS,
-                      timeout=15,
-                      allow_redirects=True
-                  )
+              print("")
+              print("Processing:", title)
+              print("Google News URL:", link)
 
-                  soup = BeautifulSoup(article.text, "html.parser")
+              image = get_image(link)
 
-                  # 1. Open Graph image
-                  og_image = soup.find(
-                      "meta",
-                      attrs={"property": "og:image"}
-                  )
+              print("Image:", image)
 
-                  if og_image and og_image.get("content"):
-                      image = og_image["content"].strip()
-
-                  # 2. Twitter image fallback
-                  if not image:
-                      twitter_image = soup.find(
-                          "meta",
-                          attrs={"name": "twitter:image"}
-                      )
-
-                      if twitter_image and twitter_image.get("content"):
-                          image = twitter_image["content"].strip()
-
-              except Exception:
-                  pass
-
-              # Convert date to a simple Australian-style date
               formatted_date = pub_date
 
               try:
                   dt = parsedate_to_datetime(pub_date)
                   formatted_date = dt.strftime("%d %b %Y")
-              except Exception:
+              except:
                   pass
 
               items.append({
@@ -115,18 +182,29 @@ jobs:
                   "image": image
               })
 
-              # Avoid hammering news websites
-              time.sleep(0.5)
+              time.sleep(1)
 
           data = {
               "updated": datetime.now(timezone.utc).isoformat(),
               "items": items
           }
 
-          with open("feed.json", "w", encoding="utf-8") as f:
-              json.dump(data, f, ensure_ascii=False, indent=2)
+          with open(
+              "feed.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+              json.dump(
+                  data,
+                  f,
+                  ensure_ascii=False,
+                  indent=2
+              )
 
+          print("")
+          print("================================")
           print(f"Collected {len(items)} news articles.")
+          print("================================")
           PY
 
           python update_news.py
