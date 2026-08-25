@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Australia Steel News</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f7f7f7;
+      color: #222;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 26px;
+      margin: 0 0 20px;
+    }
+
+    .updated {
+      font-size: 13px;
+      color: #777;
+      margin-bottom: 20px;
+    }
+
+    .news-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      transition: transform 0.15s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-3px);
+    }
+
+    .card-image {
+      width: 100%;
+      height: 170px;
+      object-fit: cover;
+      background: #e9e9e9;
+    }
+
+    .content {
+      padding: 16px;
+    }
+
+    .title {
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.4;
+      margin-bottom: 10px;
+    }
+
+    .title a {
+      color: #222;
+      text-decoration: none;
+    }
+
+    .title a:hover {
+      text-decoration: underline;
+    }
+
+    .source {
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 5px;
+    }
+
+    .date {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #777;
+    }
+
+    .error {
+      background: #fff3f3;
+      color: #b00020;
+      padding: 15px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h1>🇦🇺 Australia Steel News</h1>
+
+  <div class="updated" id="updated">
+    Loading latest news...
+  </div>
+
+  <div id="news" class="news-grid">
+    <div class="loading">Loading news...</div>
+  </div>
+
+</div>
+
+<script>
+
+async function loadNews() {
+
+  const newsContainer = document.getElementById("news");
+  const updated = document.getElementById("updated");
+
+  try {
+
+    const response = await fetch("feed.json?" + Date.now());
+
+    if (!response.ok) {
+      throw new Error("Could not load feed.json");
+    }
+
+    const data = await response.json();
+
+    newsContainer.innerHTML = "";
+
+    data.items.forEach(item => {
+
+      const card = document.createElement("div");
+      card.className = "card";
+
+      const image = document.createElement("img");
+      image.className = "card-image";
+      image.src = item.image || "https://placehold.co/800x450?text=Steel+News";
+      image.alt = "";
+
+      const content = document.createElement("div");
+      content.className = "content";
+
+      const title = document.createElement("div");
+      title.className = "title";
+
+      const link = document.createElement("a");
+      link.href = item.link;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = item.title;
+
+      title.appendChild(link);
+
+      const source = document.createElement("div");
+      source.className = "source";
+      source.textContent = item.source || "News";
+
+      const date = document.createElement("div");
+      date.className = "date";
+      date.textContent = item.date || "";
+
+      content.appendChild(title);
+      content.appendChild(source);
+      content.appendChild(date);
+
+      card.appendChild(image);
+      card.appendChild(content);
+
+      newsContainer.appendChild(card);
+
+    });
+
+    updated.textContent =
+      "Last updated: " +
+      new Date(data.updated).toLocaleString("en-AU");
+
+  } catch (error) {
+
+    newsContainer.innerHTML =
+      '<div class="error">News feed is currently unavailable.</div>';
+
+    updated.textContent = "";
+
+    console.error(error);
+
+  }
+
+}
+
+loadNews();
+
+</script>
+
+</body>
+</html>
